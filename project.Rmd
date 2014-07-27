@@ -1,0 +1,90 @@
+---
+title: "Evaluating barbell lift exercises through machine learning"
+date: "Sunday, July 27, 2014"
+output: html_document
+---
+
+In this investigation we aim to build a machine learning-based model that could be used to evaluate correctness of barbell lift exercises based on the output of accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The investigation resulted in a random forrest-based algorithm with a 97.8% out of sample error rate.
+
+## Technical preliminaries
+In order to achieve better processing time, we are going to use Revolution Analytics' doParallel library for R:
+
+```{r warning=FALSE}
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+```
+
+And the algorithm itself will be built with the aid of Max Kuhn's Caret R package:
+
+```{r warning=FALSE}
+library(caret)
+library(kernlab)
+```
+
+## Data clean up
+The dataset used in this investigation has been downloaded from [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and placed in the working directory:
+```{r}
+initial.data <- read.csv("pml-training.csv")
+names(initial.data)
+```
+First, we are going to remove columns 1 through 7, since they will not contribute to the algorithm itself:
+```{r}
+initial.data[,7] <- NULL
+initial.data[,6] <- NULL
+initial.data[,5] <- NULL
+initial.data[,4] <- NULL
+initial.data[,3] <- NULL
+initial.data[,2] <- NULL
+initial.data[,1] <- NULL
+```
+Second, we are going to remove columns representing measurement statistics - variance, average, maximum, minimum, standard deviation, amplitude, skewness, and kurtosis:
+```{r}
+initial.data <- initial.data[,-grep(x = names(initial.data),pattern = "var|avg|max|min|stddev|amplitude|skewness|kurtosis")]
+```
+
+## Data slicing
+We are going to separate our dataset into a training and testing slices - with 75% of the measurements used for training and 25% used for out-of-sample error estimation:
+```{r}
+set.seed(14832)
+index <- createDataPartition(y=initial.data$classe, p=0.75, list=FALSE)
+training.data <- initial.data[index,]
+testing.data <- initial.data[-index,]
+```
+
+## Preprocessing
+Preprocessing of the entire dataset is carried out using principal component analysis performed on the training dataslice with the threshold for capturing 95% of the variance in the data:
+```{r}
+preProc <- preProcess(training.data[,-dim(training.data)[2]], method="pca")
+```
+`r preProc$thresh*100` percent of the variance is captured by `r preProc$numComp` components. Now we apply the identified PCA transformations to the training and testing slices to obtain normalized datasets:
+```{r}
+trainPC <- predict(preProc, training.data[,-dim(training.data)[2]])
+testPC  <- predict(preProc, testing.data[,-dim(testing.data)[2]])
+```
+
+## Building the model
+The model is built from the PCA-transformed training dataslice using the random forrest algorithm with 10-fold cross-validation:
+```{r}
+modelFit.rf <- train(training.data$classe ~ ., method="rf", data=trainPC, trControl = trainControl(method = 'cv', number = 10))
+modelFit.rf
+confusionMatrix(training.data$classe,predict(modelFit.rf,trainPC))
+```
+Looking at the confusion matrix for the training dataslice we can see that the model has 100% in-sample accuracy.
+
+## Evaluating the model
+Now we can use the testing dataslice to estimate the model's accuracy:
+```{r}
+oos.cm <- confusionMatrix(testing.data$classe,predict(modelFit.rf,testPC))
+oos.cm
+```
+We can see that the model provides for a `r 100*oos.cm$overall[1]` percent out of sample accuracy. In particular, the prediction breakdown is as follows:
+```{r}
+oos.cm$table
+```
+Which translates into the following per-class prediction rates:
+```{r}
+error.table <- rbind(oos.cm$table, colSums(oos.cm$table))
+error.table <- apply(error.table, MARGIN = 2, FUN = function (x) 100*x/x[length(x)])
+round(error.table[-dim(error.table)[1],])
+```
