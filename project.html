@@ -57,7 +57,7 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 </div>
 
 
-<p>In this investigation we aim to build a machine learning algorithm that could be used to evaluate correctness of barbell lift exercises based on the output of accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The investigation resulted in a random forrest-based algorithm with a 97.8% out of sample error rate.</p>
+<p>In this investigation we aim to build a machine learning-based model that could be used to evaluate correctness of barbell lift exercises based on the output of accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The investigation resulted in a random forrest-based algorithm with a 97.8% out of sample error rate.</p>
 <div id="technical-preliminaries" class="section level2">
 <h2>Technical preliminaries</h2>
 <p>In order to achieve better processing time, we are going to use Revolution Analytics’ doParallel library for R:</p>
@@ -179,14 +179,130 @@ testing.data &lt;- initial.data[-index,]</code></pre>
 </div>
 <div id="preprocessing" class="section level2">
 <h2>Preprocessing</h2>
-<p>Preprocessing on the dataset is carried out using principal component analysis with the threshold for capturing 95% of the variance in the data:</p>
-<pre class="r"><code>preProc &lt;- preProcess(training.data[,-dim(training.data)[2]], method=&quot;pca&quot;)
-trainPC &lt;- predict(preProc, training.data[,-dim(training.data)[2]])
+<p>Preprocessing of the entire dataset is carried out using principal component analysis performed on the training dataslice with the threshold for capturing 95% of the variance in the data:</p>
+<pre class="r"><code>preProc &lt;- preProcess(training.data[,-dim(training.data)[2]], method=&quot;pca&quot;)</code></pre>
+<p>95 percent of the variance is captured by 25 components. Now we apply the identified PCA transformations to the training and testing slices to obtain normalized datasets:</p>
+<pre class="r"><code>trainPC &lt;- predict(preProc, training.data[,-dim(training.data)[2]])
 testPC  &lt;- predict(preProc, testing.data[,-dim(testing.data)[2]])</code></pre>
-<p>95 percent of the variance is captured by 25 components.</p>
 </div>
-<div id="section" class="section level2">
-<h2></h2>
+<div id="building-the-model" class="section level2">
+<h2>Building the model</h2>
+<p>The model is built from the PCA-transformed training dataslice using the random forrest algorithm with 10-fold cross-validation:</p>
+<pre class="r"><code>modelFit.rf &lt;- train(training.data$classe ~ ., method=&quot;rf&quot;, data=trainPC, trControl = trainControl(method = 'cv', number = 10))</code></pre>
+<pre><code>## Loading required package: randomForest</code></pre>
+<pre><code>## Warning: package 'randomForest' was built under R version 3.1.1</code></pre>
+<pre><code>## randomForest 4.6-7
+## Type rfNews() to see new features/changes/bug fixes.</code></pre>
+<pre class="r"><code>modelFit.rf</code></pre>
+<pre><code>## Random Forest 
+## 
+## 14718 samples
+##    24 predictors
+##     5 classes: 'A', 'B', 'C', 'D', 'E' 
+## 
+## No pre-processing
+## Resampling: Cross-Validated (10 fold) 
+## 
+## Summary of sample sizes: 13247, 13246, 13247, 13248, 13246, 13245, ... 
+## 
+## Resampling results across tuning parameters:
+## 
+##   mtry  Accuracy  Kappa  Accuracy SD  Kappa SD
+##   2     1         1      0.004        0.005   
+##   10    1         1      0.004        0.005   
+##   20    1         1      0.003        0.004   
+## 
+## Accuracy was used to select the optimal model using  the largest value.
+## The final value used for the model was mtry = 2.</code></pre>
+<pre class="r"><code>confusionMatrix(training.data$classe,predict(modelFit.rf,trainPC))</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 4185    0    0    0    0
+##          B    0 2848    0    0    0
+##          C    0    0 2567    0    0
+##          D    0    0    0 2412    0
+##          E    0    0    0    0 2706
+## 
+## Overall Statistics
+##                                 
+##                Accuracy : 1     
+##                  95% CI : (1, 1)
+##     No Information Rate : 0.284 
+##     P-Value [Acc &gt; NIR] : &lt;2e-16
+##                                 
+##                   Kappa : 1     
+##  Mcnemar's Test P-Value : NA    
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity             1.000    1.000    1.000    1.000    1.000
+## Specificity             1.000    1.000    1.000    1.000    1.000
+## Pos Pred Value          1.000    1.000    1.000    1.000    1.000
+## Neg Pred Value          1.000    1.000    1.000    1.000    1.000
+## Prevalence              0.284    0.194    0.174    0.164    0.184
+## Detection Rate          0.284    0.194    0.174    0.164    0.184
+## Detection Prevalence    0.284    0.194    0.174    0.164    0.184
+## Balanced Accuracy       1.000    1.000    1.000    1.000    1.000</code></pre>
+<p>Looking at the confusion matrix for the training dataslice we can see that the model has 100% in-sample accuracy.</p>
+</div>
+<div id="evaluating-the-model" class="section level2">
+<h2>Evaluating the model</h2>
+<p>Now we can use the testing dataslice to estimate the model’s accuracy:</p>
+<pre class="r"><code>oos.cm &lt;- confusionMatrix(testing.data$classe,predict(modelFit.rf,testPC))
+oos.cm</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1385    3    6    1    0
+##          B   15  920   11    0    3
+##          C    0   16  831    6    2
+##          D    0    1   20  782    1
+##          E    2    2   12    6  879
+## 
+## Overall Statistics
+##                                         
+##                Accuracy : 0.978         
+##                  95% CI : (0.974, 0.982)
+##     No Information Rate : 0.286         
+##     P-Value [Acc &gt; NIR] : &lt; 2e-16       
+##                                         
+##                   Kappa : 0.972         
+##  Mcnemar's Test P-Value : 4.87e-05      
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity             0.988    0.977    0.944    0.984    0.993
+## Specificity             0.997    0.993    0.994    0.995    0.995
+## Pos Pred Value          0.993    0.969    0.972    0.973    0.976
+## Neg Pred Value          0.995    0.994    0.988    0.997    0.999
+## Prevalence              0.286    0.192    0.179    0.162    0.180
+## Detection Rate          0.282    0.188    0.169    0.159    0.179
+## Detection Prevalence    0.284    0.194    0.174    0.164    0.184
+## Balanced Accuracy       0.993    0.985    0.969    0.989    0.994</code></pre>
+<p>We can see that the model provides for a 97.8181 percent out of sample accuracy. In particular, the prediction breakdown is as follows:</p>
+<pre class="r"><code>oos.cm$table</code></pre>
+<pre><code>##           Reference
+## Prediction    A    B    C    D    E
+##          A 1385    3    6    1    0
+##          B   15  920   11    0    3
+##          C    0   16  831    6    2
+##          D    0    1   20  782    1
+##          E    2    2   12    6  879</code></pre>
+<p>Which translates into the following per-class prediction rates:</p>
+<pre class="r"><code>error.table &lt;- rbind(oos.cm$table, colSums(oos.cm$table))
+error.table &lt;- apply(error.table, MARGIN = 2, FUN = function (x) 100*x/x[length(x)])
+round(error.table[-dim(error.table)[1],])</code></pre>
+<pre><code>##    A  B  C  D  E
+## A 99  0  1  0  0
+## B  1 98  1  0  0
+## C  0  2 94  1  0
+## D  0  0  2 98  0
+## E  0  0  1  1 99</code></pre>
 </div>
 
 
